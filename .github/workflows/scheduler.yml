@@ -23,9 +23,8 @@ jobs:
 
     - name: Gerekli Kutuphaneleri Yukle
       run: |
-       # Çalıştırmadan önce doğru klasöre gidiyoruz:
-        cd variablebot
-        python main.py
+        # python -m pip ile kurulumu zorluyoruz.
+        python -m pip install tweepy google-generativeai python-dotenv
 
     - name: Botu Calistir ve Tiviti At
       env:
