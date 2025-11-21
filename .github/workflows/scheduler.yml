@@ -1,11 +1,9 @@
-name: VariableBot Scheduler # İSİM BURADA 'VariableBot' OLARAK GÜNCELLENDİ
+name: VariableBot Scheduler
 
-# Botun her saat başında çalışması için ayar (Cron syntax)
+# Botun her saat başında çalışması için ayar
 on:
   schedule:
-    # Bu satır her saat başında çalışmayı sağlar (Örn: 09:00, 10:00, 11:00...)
-    - cron: '0 * * * *' 
-  # Bu, manuel tetiklemeyi sağlar (Hemen test etmek için)
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -23,7 +21,7 @@ jobs:
 
     - name: Gerekli Kutuphaneleri Yukle
       run: |
-        # python -m pip ile kurulumu zorluyoruz.
+        # python -m pip ile kütüphane kurulumu garanti altına alınır
         python -m pip install tweepy google-generativeai python-dotenv
 
     - name: Botu Calistir ve Tiviti At
@@ -35,4 +33,6 @@ jobs:
         TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
+        # Hata mesajındaki fazla klasör sorununu çözmek için CD komutu eklendi:
+        cd variablebot
         python main.py
