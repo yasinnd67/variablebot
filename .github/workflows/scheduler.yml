@@ -1,0 +1,37 @@
+name: VariableBot Scheduler # İSİM BURADA 'VariableBot' OLARAK GÜNCELLENDİ
+
+# Botun her saat başında çalışması için ayar (Cron syntax)
+on:
+  schedule:
+    # Bu satır her saat başında çalışmayı sağlar (Örn: 09:00, 10:00, 11:00...)
+    - cron: '0 * * * *' 
+  # Bu, manuel tetiklemeyi sağlar (Hemen test etmek için)
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Depoyu Indir
+      uses: actions/checkout@v4
+
+    - name: Python Ortamini Kur
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Gerekli Kutuphaneleri Yukle
+      run: |
+        pip install tweepy google-generativeai python-dotenv
+
+    - name: Botu Calistir ve Tiviti At
+      env:
+        # GitHub'a sakladigimiz gizli anahtarlari Python'a gonderiyoruz
+        TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+        TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+        TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+        TWITTER_ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: |
+        python main.py
