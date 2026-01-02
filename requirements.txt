@@ -1,0 +1,7 @@
+tweepy
+google-generativeai
+matplotlib
+yfinance
+feedparser
+python-dotenv
+pandas
