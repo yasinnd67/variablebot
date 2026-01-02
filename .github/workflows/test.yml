@@ -1,0 +1,10 @@
+name: Test Manuel Çalıştırma
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Çalıştı!"
