@@ -30,7 +30,8 @@ GEMINI_MODEL = "gemini-2.5-flash"
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel(GEMINI_MODEL)
 
-# --- TWITTER BAĞLANTISI (OAuth 1.0a User Context) ---
+
+# --- TWITTER BAĞLANTISI ---
 
 try:
     client = tweepy.Client(
@@ -46,7 +47,7 @@ except Exception as e:
     sys.exit()
 
 
-# --- Yardımcı Fonksiyon ---
+# --- JSON Yardımcı ---
 
 def temiz_json_al(prompt):
     try:
@@ -65,22 +66,50 @@ def temiz_json_al(prompt):
         return None
 
 
+
+# --- GÜVENLİ FİNANS VERİ ÇEKİCİ ---
+
+def guvenli_fiyat(sembol_listesi):
+    """
+    Birden fazla sembol dener
+    Veri yoksa None döner, hata fırlatmaz
+    """
+
+    for sembol in sembol_listesi:
+        try:
+            tkr = yf.Ticker(sembol)
+            hist = tkr.history(period="1d")
+
+            if hist is None or len(hist) == 0:
+                logging.error(f"{sembol}: veri yok, atlanıyor")
+                continue
+
+            return hist["Close"].iloc[-1]
+
+        except Exception as e:
+            logging.error(f"{sembol} okunamadı: {e}")
+
+    return None
+
+
+
 # --- HASHTAG ÜRETİCİ ---
 
 def finans_hashtagleri():
     secenekler = [
         ["#dolar", "#euro", "#altın"],
-        ["#piyasa", "#finans", "#ekonomi"],
-        ["#gramaltın", "#gümüş", "#kur"]
+        ["#finans", "#ekonomi", "#piyasa"],
+        ["#gramaltın", "#kur", "#gümüş"]
     ]
     return " ".join(random.choice(secenekler))
 
 
 def haber_hashtagleri(baslik):
     kelimeler = [w for w in baslik.split() if len(w) > 4]
-    kelimeler = kelimeler[:2] if len(kelimeler) >= 2 else kelimeler
+    kelimeler = kelimeler[:2]
     etiketler = ["#" + re.sub(r"[^a-zA-ZğüşöçıİĞÜŞÖÇ0-9]", "", k.lower()) for k in kelimeler]
     return "#sondakika " + " ".join(etiketler)
+
 
 
 # --- FLOOD MODU ---
@@ -92,6 +121,7 @@ def hikaye_modu():
         "Çözülememiş gizemli bir suç",
         "İlham verici bir başarı öyküsü"
     ]
+
     konu = random.choice(konular)
 
     prompt = f"""
@@ -122,40 +152,50 @@ def hikaye_modu():
         logging.error(f"Flood hatası: {e}")
 
 
-# --- FİNANS + HABER (TEK TWEETTE TOPLU) ---
+
+# --- FİNANS + HABER (DAYANIKLI SÜRÜM) ---
 
 def finans_haber_modu():
     print(">>> 📈 Finans & Haber modu çalışıyor")
 
     try:
-        usd = yf.Ticker("USDTRY=X").history(period="1d")["Close"].iloc[-1]
-        eur = yf.Ticker("EURTRY=X").history(period="1d")["Close"].iloc[-1]
-        ons = yf.Ticker("GC=F").history(period="1d")["Close"].iloc[-1]
-        gumus_usd = yf.Ticker("XAGUSD=X").history(period="1d")["Close"].iloc[-1]
+        usd = guvenli_fiyat(["USDTRY=X"])
+        eur = guvenli_fiyat(["EURTRY=X"])
+        ons = guvenli_fiyat(["GC=F"])
 
-        gram_altin = (ons / 31.1035) * usd
-        ceyrek_altin = gram_altin * 1.75
-        gumus_tl = (gumus_usd / 31.1035) * usd
+        # Gümüş için fallback listesi
+        gumus_usd = guvenli_fiyat([
+            "XAGUSD=X",   # birincil
+            "SI=F",       # COMEX Silver Future
+            "SILVER"      # alternatif ticker
+        ])
+
+        gram_altin = (ons / 31.1035) * usd if ons and usd else None
+        ceyrek_altin = gram_altin * 1.75 if gram_altin else None
+        gumus_tl = (gumus_usd / 31.1035) * usd if gumus_usd and usd else None
 
         rss = "https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr"
         feed = feedparser.parse(rss)
         haber = feed.entries[0].title if feed.entries else "Gündem hareketli"
 
-        tweet = (
-            f"Döviz & Değerli Madenler\n"
-            f"💵 Dolar: {usd:.2f} TL\n"
-            f"💶 Euro: {eur:.2f} TL\n"
-            f"🥇 Gram Altın: {gram_altin:.2f} TL\n"
-            f"🪙 Çeyrek Altın: {ceyrek_altin:.2f} TL\n"
-            f"🥈 Gümüş: {gumus_tl:.2f} TL\n\n"
-            f"Gündem: {haber}\n\n"
-            f"{finans_hashtagleri()}"
-        )
+        satirlar = ["Döviz & Değerli Madenler"]
+
+        if usd: satirlar.append(f"💵 Dolar: {usd:.2f} TL")
+        if eur: satirlar.append(f"💶 Euro: {eur:.2f} TL")
+        if gram_altin: satirlar.append(f"🥇 Gram Altın: {gram_altin:.2f} TL")
+        if ceyrek_altin: satirlar.append(f"🪙 Çeyrek Altın: {ceyrek_altin:.2f} TL")
+        if gumus_tl: satirlar.append(f"🥈 Gümüş: {gumus_tl:.2f} TL")
+
+        satirlar.append("")
+        satirlar.append(f"Gündem: {haber}")
+        satirlar.append("")
+        satirlar.append(finans_hashtagleri())
+
+        tweet = "\n".join(satirlar)
 
         client.create_tweet(text=tweet, user_auth=True)
         logging.info("✅ Finans tweeti gönderildi")
 
-        # Ayrı haber tweeti (zorunlu #sondakika)
         haber_tweet = f"{haber}\n\n{haber_hashtagleri(haber)}"
         client.create_tweet(text=haber_tweet, user_auth=True)
 
@@ -163,6 +203,7 @@ def finans_haber_modu():
 
     except Exception as e:
         logging.error(f"Finans mod hatası: {e}")
+
 
 
 # --- ANA ÇALIŞTIRMA ---
