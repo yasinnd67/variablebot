@@ -49,10 +49,11 @@ model = genai.GenerativeModel('gemini-2.5-flash')
 try:
     client = tweepy.Client(
         bearer_token=os.getenv("TWITTER_BEARER_TOKEN"),
-        consumer_key=os.getenv("TWITTER_API_KEY"),
-        consumer_secret=os.getenv("TWITTER_API_SECRET"),
-        access_token=os.getenv("TWITTER_ACCESS_TOKEN"),
-        access_token_secret=os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
+    consumer_key=os.getenv("TWITTER_API_KEY"),
+    consumer_secret=os.getenv("TWITTER_API_SECRET"),
+    access_token=os.getenv("TWITTER_ACCESS_TOKEN"),
+    access_token_secret=os.getenv("TWITTER_ACCESS_TOKEN_SECRET"),
+    wait_on_rate_limit=True # Bu çok önemli
     )
     
     # Medya yükleme için v1.1 yetkisi
@@ -60,7 +61,7 @@ try:
         os.getenv("TWITTER_API_KEY"), os.getenv("TWITTER_API_SECRET"),
         os.getenv("TWITTER_ACCESS_TOKEN"), os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
     )
-    api = tweepy.API(auth)
+    api = tweepy.API(auth, wait_on_rate_limit=True)
     print(">>> ✅ Twitter Bağlantısı Başarılı!")
 except Exception as e:
     print(f">>> ❌ Twitter Bağlantı Hatası: {e}")
@@ -233,11 +234,11 @@ def finans_haber_modu():
         # 4. Paylaş
         if grafik_yolu and os.path.exists(grafik_yolu):
             media = api.media_upload(grafik_yolu)
-            client.create_tweet(text=tweet_metni, media_ids=[media.media_id])
+            client.create_tweet(text=tweet_metni, media_ids=[media.media_id], user_auth=True) 
             logging.info(f"✅ Tweet (Görselli) Gönderildi: {tweet_metni[:30]}...")
             os.remove(grafik_yolu) # Temizlik
         else:
-            client.create_tweet(text=tweet_metni)
+            client.create_tweet(text=tweet_metni, user_auth=True)
             logging.info("✅ Tweet (Görselsiz) Gönderildi.")
             
     except Exception as e:
