@@ -7,18 +7,18 @@ import json
 import logging
 import sys
 import warnings
+import re
 
 # Gereksiz uyarıları kapat
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# Hata veren kütüphaneler
 try:
     import yfinance as yf
-    import matplotlib.pyplot as plt
     import feedparser
+    import matplotlib.pyplot as plt
+    plt.switch_backend('Agg')
 except ImportError:
-    print(f"KRİTİK HATA: Kütüphaneler eksik! Lütfen terminale şunu yazın: pip install yfinance matplotlib feedparser")
-    sys.exit()
+    print("Eksik kütüphaneler: pip install yfinance feedparser matplotlib")
 
 from datetime import datetime
 from dotenv import load_dotenv
@@ -26,44 +26,30 @@ from dotenv import load_dotenv
 # --- AYARLAR ---
 load_dotenv()
 
-# Matplotlib için ekran kartı olmayan sunucu ayarı
-plt.switch_backend('Agg')
-
-# Loglama Ayarları
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - [%(levelname)s] - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
-# API Anahtarları Kontrolü
-required_vars = ["GEMINI_API_KEY", "TWITTER_BEARER_TOKEN", "TWITTER_API_KEY", "TWITTER_API_SECRET", "TWITTER_ACCESS_TOKEN", "TWITTER_ACCESS_TOKEN_SECRET"]
-if not all(os.getenv(var) for var in required_vars):
-    logging.error("Eksik .env veya GitHub Secret değişkenleri!")
-    sys.exit()
+# API Değişkenleri
+GEMINI_MODEL = 'gemini-2.5-flash' # İstediğin model geri geldi
 
-# Gemini Ayarları
+# Gemini Yapılandırması
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel('gemini-2.5-flash')
+model = genai.GenerativeModel(GEMINI_MODEL)
 
-# --- TWITTER BAĞLANTI (403 HATASI ÇÖZÜMÜ) ---
+# --- TWITTER BAĞLANTISI ---
 try:
-    # GitHub sunucularında 403 hatasını engellemek için anahtarları OAuth1.0a (User Context) moduna zorluyoruz
+    # 403 Hatasını engellemek için OAuth 1.0a (User Context) üzerinden bağlanan client
     client = tweepy.Client(
-        bearer_token=os.getenv("TWITTER_BEARER_TOKEN"),
         consumer_key=os.getenv("TWITTER_API_KEY"),
         consumer_secret=os.getenv("TWITTER_API_SECRET"),
         access_token=os.getenv("TWITTER_ACCESS_TOKEN"),
         access_token_secret=os.getenv("TWITTER_ACCESS_TOKEN_SECRET"),
         wait_on_rate_limit=True
     )
-    
-    auth = tweepy.OAuth1UserHandler(
-        os.getenv("TWITTER_API_KEY"), os.getenv("TWITTER_API_SECRET"),
-        os.getenv("TWITTER_ACCESS_TOKEN"), os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
-    )
-    api = tweepy.API(auth, wait_on_rate_limit=True)
-    print(">>> ✅ Twitter Bağlantısı Kuruldu!")
+    print(">>> ✅ Twitter Bağlantısı Başarılı!")
 except Exception as e:
     print(f">>> ❌ Twitter Bağlantı Hatası: {e}")
     sys.exit()
@@ -74,91 +60,99 @@ def temiz_json_al(prompt):
     try:
         response = model.generate_content(prompt)
         text = response.text.strip()
+        # Markdown temizliği
         if "```" in text:
-            import re
-            text = re.search(r'\{.*\}', text, re.DOTALL).group()
+            match = re.search(r'\{.*\}', text, re.DOTALL)
+            if match: text = match.group()
         return json.loads(text)
     except Exception as e:
-        logging.error(f"AI Cevap Hatası: {e}")
+        logging.error(f"Gemini/JSON Hatası: {e}")
         return None
 
-def grafik_ciz(veri, baslik, sembol):
-    dosya_adi = f"chart_{sembol}.png"
-    try:
-        plt.figure(figsize=(10, 6))
-        plt.plot(veri.index, veri['Close'], color='#1DA1F2', linewidth=2.5)
-        plt.title(baslik, fontsize=16, fontweight='bold')
-        plt.grid(True, linestyle='--', alpha=0.5)
-        plt.tight_layout()
-        plt.savefig(dosya_adi)
-        plt.close()
-        return dosya_adi
-    except Exception as e:
-        logging.error(f"Grafik Hatası: {e}")
-        return None
-
-# --- TWEET GÖNDERME MOTORU (KRİTİK DÜZELTME) ---
-
-def güvenli_tweet_at(metin, gorsel=None):
-    """GitHub Actions'daki 403 hatasını aşmak için user_auth=True zorunluluğu getirildi"""
-    try:
-        if gorsel and os.path.exists(gorsel):
-            # Görselli tweet (OAuth 1.0a kullanır)
-            media = api.media_upload(filename=gorsel)
-            client.create_tweet(text=metin, media_ids=[media.media_id], user_auth=True)
-            logging.info("✅ Görselli tweet GitHub üzerinden başarıyla atıldı.")
-        else:
-            # Görselsiz tweet
-            client.create_tweet(text=metin, user_auth=True)
-            logging.info("✅ Tweet GitHub üzerinden başarıyla atıldı.")
-        return True
-    except Exception as e:
-        logging.error(f"❌ TWEET ATILAMADI (403 veya Yetki Hatası): {e}")
-        return False
-
-# --- MODLAR ---
+# --- MOD 1: HİKAYE (FLOOD) MODU ---
 
 def hikaye_modu():
-    print("\n>>> 📖 MOD: HİKAYE SEÇİLDİ")
-    prompt = """Twitter için 3 tweetlik sürükleyici bir zincir hazırla. Konu: Rastgele gizemli bir olay. JSON formatında ver: {"tweet1": "...", "tweet2": "...", "tweet3": "..."}"""
+    print("\n>>> 📖 MOD: HİKAYE/FLOOD SEÇİLDİ")
+    topics = [
+        "Tarihte az bilinen bir ihanet",
+        "Dünyayı değiştiren bir bilimsel kaza",
+        "Çözülememiş gizemli bir suç",
+        "İlham verici bir başarı öyküsü"
+    ]
+    secilen_konu = random.choice(topics)
+    
+    prompt = f"""
+    Sen usta bir hikaye anlatıcısısın. Konu: '{secilen_konu}'.
+    Twitter için 3 tweetlik sürükleyici bir zincir (flood) yaz.
+    SADECE geçerli bir JSON formatında cevap ver:
+    {{
+        "tweet1": "...",
+        "tweet2": "...",
+        "tweet3": "..."
+    }}
+    """
+    
     data = temiz_json_al(prompt)
-    if data:
+    if not data: return
+
+    try:
+        # User_auth=True eklenerek GitHub kısıtlaması aşılır
         t1 = client.create_tweet(text=data['tweet1'], user_auth=True)
-        time.sleep(2)
+        time.sleep(3)
         t2 = client.create_tweet(text=data['tweet2'], in_reply_to_tweet_id=t1.data['id'], user_auth=True)
-        time.sleep(2)
+        time.sleep(3)
         client.create_tweet(text=data['tweet3'], in_reply_to_tweet_id=t2.data['id'], user_auth=True)
+        logging.info("✅ Flood Gönderildi!")
+    except Exception as e:
+        logging.error(f"Flood Tweet Hatası: {e}")
+
+# --- MOD 2: HABER VE FİNANS MODU ---
 
 def finans_haber_modu():
-    print("\n>>> 📈 MOD: HABER VE GRAFİK SEÇİLDİ")
-    semboller = {"USDTRY=X": "Dolar/TL", "GC=F": "Altın (Ons)"}
+    print("\n>>> 📈 MOD: HABER VE FİNANS SEÇİLDİ")
+    semboller = {"USDTRY=X": "Dolar/TL", "EURTRY=X": "Euro/TL", "GC=F": "Altın (Ons)"}
     sembol, isim = random.choice(list(semboller.items()))
     
     try:
+        # 1. Finans Verisi
         ticker = yf.Ticker(sembol)
-        hist = ticker.history(period="1mo")
+        hist = ticker.history(period="1d")
         fiyat = hist['Close'].iloc[-1]
-        grafik = grafik_ciz(hist, f"{isim} Analizi", sembol)
         
-        prompt = f"Varlık: {isim}, Fiyat: {fiyat:.2f}. Bu ekonomik durum hakkında kısa, ilgi çekici bir tweet yaz. JSON: {'tweet_text': '...'}"
+        # 2. Haber Verisi (RSS)
+        rss_url = "[https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr](https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr)"
+        feed = feedparser.parse(rss_url)
+        haber_basligi = feed.entries[0].title if feed.entries else "Gündem hareketli."
+        
+        # 3. Yorumlat
+        prompt = f"""
+        Finans Verisi: {isim} - {fiyat:.2f}. Haber: {haber_basligi}. 
+        Bunları yorumlayan ilgi çekici bir tweet yaz. 
+        SADECE JSON: {{"tweet_text": "..."}}
+        """
+        
         data = temiz_json_al(prompt)
-        
         if data:
-            güvenli_tweet_at(data['tweet_text'], grafik)
-            if grafik and os.path.exists(grafik): os.remove(grafik)
+            # Görsel çakışması 403 sebebi olduğu için şimdilik sadece metin
+            client.create_tweet(text=data['tweet_text'], user_auth=True)
+            logging.info(f"✅ Finans Tweeti Gönderildi: {isim}")
+            
     except Exception as e:
         logging.error(f"Finans Modu Hatası: {e}")
 
-# --- ÇALIŞTIR ---
+# --- ANA PROGRAM ---
 
 if __name__ == "__main__":
     print("="*40)
-    print("   🤖 GİTHUB UYUMLU BOT BAŞLATILDI")
+    print(f"🤖 BOT AKTİF - MODEL: {GEMINI_MODEL}")
     print("="*40)
     
-    if random.random() < 0.5:
-        hikaye_modu()
-    else:
-        finans_haber_modu()
-    
-    print("\n>>> ✅ İŞLEM TAMAMLANDI.")
+    try:
+        zar = random.random()
+        if zar < 0.5:
+            hikaye_modu()
+        else:
+            finans_haber_modu()
+        print("\n>>> ✅ İŞLEM BAŞARIYLA TAMAMLANDI.")
+    except Exception as e:
+        print(f"\n>>> 💥 KRİTİK HATA: {e}")
