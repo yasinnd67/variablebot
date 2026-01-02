@@ -8,40 +8,31 @@ import logging
 import sys
 import warnings
 import re
+from dotenv import load_dotenv
 
-# Gereksiz uyarıları kapat
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 try:
     import yfinance as yf
     import feedparser
-    import matplotlib.pyplot as plt
-    plt.switch_backend('Agg')
 except ImportError:
-    print("Eksik kütüphaneler: pip install yfinance feedparser matplotlib")
+    print("Eksik kütüphaneler: pip install yfinance feedparser")
 
-from datetime import datetime
-from dotenv import load_dotenv
-
-# --- AYARLAR ---
 load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - [%(levelname)s] - %(message)s',
+    format="%(asctime)s - [%(levelname)s] - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
-# API Değişkenleri
-GEMINI_MODEL = 'gemini-2.5-flash' # İstediğin model geri geldi
-
-# Gemini Yapılandırması
+GEMINI_MODEL = "gemini-2.5-flash"
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel(GEMINI_MODEL)
 
-# --- TWITTER BAĞLANTISI ---
+# --- TWITTER BAĞLANTISI (OAuth 1.0a User Context) ---
+
 try:
-    # 403 Hatasını engellemek için OAuth 1.0a (User Context) üzerinden bağlanan client
     client = tweepy.Client(
         consumer_key=os.getenv("TWITTER_API_KEY"),
         consumer_secret=os.getenv("TWITTER_API_SECRET"),
@@ -49,110 +40,145 @@ try:
         access_token_secret=os.getenv("TWITTER_ACCESS_TOKEN_SECRET"),
         wait_on_rate_limit=True
     )
-    print(">>> ✅ Twitter Bağlantısı Başarılı!")
+    print(">>> ✅ Twitter bağlantısı başarılı")
 except Exception as e:
-    print(f">>> ❌ Twitter Bağlantı Hatası: {e}")
+    print(f">>> ❌ Twitter bağlantı hatası: {e}")
     sys.exit()
 
-# --- YARDIMCI FONKSİYONLAR ---
+
+# --- Yardımcı Fonksiyon ---
 
 def temiz_json_al(prompt):
     try:
-        response = model.generate_content(prompt)
-        text = response.text.strip()
-        # Markdown temizliği
+        r = model.generate_content(prompt)
+        text = r.text.strip()
+
         if "```" in text:
-            match = re.search(r'\{.*\}', text, re.DOTALL)
-            if match: text = match.group()
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if m:
+                text = m.group()
+
         return json.loads(text)
+
     except Exception as e:
-        logging.error(f"Gemini/JSON Hatası: {e}")
+        logging.error(f"Gemini JSON hatası: {e}")
         return None
 
-# --- MOD 1: HİKAYE (FLOOD) MODU ---
+
+# --- HASHTAG ÜRETİCİ ---
+
+def finans_hashtagleri():
+    secenekler = [
+        ["#dolar", "#euro", "#altın"],
+        ["#piyasa", "#finans", "#ekonomi"],
+        ["#gramaltın", "#gümüş", "#kur"]
+    ]
+    return " ".join(random.choice(secenekler))
+
+
+def haber_hashtagleri(baslik):
+    kelimeler = [w for w in baslik.split() if len(w) > 4]
+    kelimeler = kelimeler[:2] if len(kelimeler) >= 2 else kelimeler
+    etiketler = ["#" + re.sub(r"[^a-zA-ZğüşöçıİĞÜŞÖÇ0-9]", "", k.lower()) for k in kelimeler]
+    return "#sondakika " + " ".join(etiketler)
+
+
+# --- FLOOD MODU ---
 
 def hikaye_modu():
-    print("\n>>> 📖 MOD: HİKAYE/FLOOD SEÇİLDİ")
-    topics = [
+    konular = [
         "Tarihte az bilinen bir ihanet",
         "Dünyayı değiştiren bir bilimsel kaza",
         "Çözülememiş gizemli bir suç",
         "İlham verici bir başarı öyküsü"
     ]
-    secilen_konu = random.choice(topics)
-    
+    konu = random.choice(konular)
+
     prompt = f"""
-    Sen usta bir hikaye anlatıcısısın. Konu: '{secilen_konu}'.
-    Twitter için 3 tweetlik sürükleyici bir zincir (flood) yaz.
-    SADECE geçerli bir JSON formatında cevap ver:
+    Konu: {konu}
+    3 tweetlik sürükleyici bir flood yaz.
+    JSON ver:
     {{
-        "tweet1": "...",
-        "tweet2": "...",
-        "tweet3": "..."
+        "tweet1":"...",
+        "tweet2":"...",
+        "tweet3":"..."
     }}
     """
-    
+
     data = temiz_json_al(prompt)
-    if not data: return
+    if not data:
+        return
 
     try:
-        # User_auth=True eklenerek GitHub kısıtlaması aşılır
-        t1 = client.create_tweet(text=data['tweet1'], user_auth=True)
+        t1 = client.create_tweet(text=data["tweet1"], user_auth=True)
         time.sleep(3)
-        t2 = client.create_tweet(text=data['tweet2'], in_reply_to_tweet_id=t1.data['id'], user_auth=True)
+        t2 = client.create_tweet(text=data["tweet2"], in_reply_to_tweet_id=t1.data["id"], user_auth=True)
         time.sleep(3)
-        client.create_tweet(text=data['tweet3'], in_reply_to_tweet_id=t2.data['id'], user_auth=True)
-        logging.info("✅ Flood Gönderildi!")
-    except Exception as e:
-        logging.error(f"Flood Tweet Hatası: {e}")
+        client.create_tweet(text=data["tweet3"], in_reply_to_tweet_id=t2.data["id"], user_auth=True)
 
-# --- MOD 2: HABER VE FİNANS MODU ---
+        logging.info("✅ Flood gönderildi")
+
+    except Exception as e:
+        logging.error(f"Flood hatası: {e}")
+
+
+# --- FİNANS + HABER (TEK TWEETTE TOPLU) ---
 
 def finans_haber_modu():
-    print("\n>>> 📈 MOD: HABER VE FİNANS SEÇİLDİ")
-    semboller = {"USDTRY=X": "Dolar/TL", "EURTRY=X": "Euro/TL", "GC=F": "Altın (Ons)"}
-    sembol, isim = random.choice(list(semboller.items()))
-    
-    try:
-        # 1. Finans Verisi
-        ticker = yf.Ticker(sembol)
-        hist = ticker.history(period="1d")
-        fiyat = hist['Close'].iloc[-1]
-        
-        # 2. Haber Verisi (RSS)
-        rss_url = "[https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr](https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr)"
-        feed = feedparser.parse(rss_url)
-        haber_basligi = feed.entries[0].title if feed.entries else "Gündem hareketli."
-        
-        # 3. Yorumlat
-        prompt = f"""
-        Finans Verisi: {isim} - {fiyat:.2f}. Haber: {haber_basligi}. 
-        Bunları yorumlayan ilgi çekici bir tweet yaz. 
-        SADECE JSON: {{"tweet_text": "..."}}
-        """
-        
-        data = temiz_json_al(prompt)
-        if data:
-            # Görsel çakışması 403 sebebi olduğu için şimdilik sadece metin
-            client.create_tweet(text=data['tweet_text'], user_auth=True)
-            logging.info(f"✅ Finans Tweeti Gönderildi: {isim}")
-            
-    except Exception as e:
-        logging.error(f"Finans Modu Hatası: {e}")
+    print(">>> 📈 Finans & Haber modu çalışıyor")
 
-# --- ANA PROGRAM ---
+    try:
+        usd = yf.Ticker("USDTRY=X").history(period="1d")["Close"].iloc[-1]
+        eur = yf.Ticker("EURTRY=X").history(period="1d")["Close"].iloc[-1]
+        ons = yf.Ticker("GC=F").history(period="1d")["Close"].iloc[-1]
+        gumus_usd = yf.Ticker("XAGUSD=X").history(period="1d")["Close"].iloc[-1]
+
+        gram_altin = (ons / 31.1035) * usd
+        ceyrek_altin = gram_altin * 1.75
+        gumus_tl = (gumus_usd / 31.1035) * usd
+
+        rss = "https://news.google.com/rss?hl=tr&gl=TR&ceid=TR:tr"
+        feed = feedparser.parse(rss)
+        haber = feed.entries[0].title if feed.entries else "Gündem hareketli"
+
+        tweet = (
+            f"Döviz & Değerli Madenler\n"
+            f"💵 Dolar: {usd:.2f} TL\n"
+            f"💶 Euro: {eur:.2f} TL\n"
+            f"🥇 Gram Altın: {gram_altin:.2f} TL\n"
+            f"🪙 Çeyrek Altın: {ceyrek_altin:.2f} TL\n"
+            f"🥈 Gümüş: {gumus_tl:.2f} TL\n\n"
+            f"Gündem: {haber}\n\n"
+            f"{finans_hashtagleri()}"
+        )
+
+        client.create_tweet(text=tweet, user_auth=True)
+        logging.info("✅ Finans tweeti gönderildi")
+
+        # Ayrı haber tweeti (zorunlu #sondakika)
+        haber_tweet = f"{haber}\n\n{haber_hashtagleri(haber)}"
+        client.create_tweet(text=haber_tweet, user_auth=True)
+
+        logging.info("✅ Haber tweeti gönderildi")
+
+    except Exception as e:
+        logging.error(f"Finans mod hatası: {e}")
+
+
+# --- ANA ÇALIŞTIRMA ---
 
 if __name__ == "__main__":
-    print("="*40)
-    print(f"🤖 BOT AKTİF - MODEL: {GEMINI_MODEL}")
-    print("="*40)
-    
+    print("=" * 40)
+    print(f"🤖 BOT ÇALIŞIYOR — Model: {GEMINI_MODEL}")
+    print("=" * 40)
+
     try:
-        zar = random.random()
-        if zar < 0.5:
+        if random.random() < 0.5:
             hikaye_modu()
         else:
             finans_haber_modu()
-        print("\n>>> ✅ İŞLEM BAŞARIYLA TAMAMLANDI.")
+
+        print(">>> ✅ İşlem tamamlandı")
+
     except Exception as e:
-        print(f"\n>>> 💥 KRİTİK HATA: {e}")
+        print(f">>> 💥 Kritik hata: {e}")
